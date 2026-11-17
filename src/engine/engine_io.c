@@ -147,6 +147,16 @@ void ocf_engine_forward_core_flush_req(struct ocf_request *req,
 
 	ocf_req_forward_core_init(req, callback);
 
+	/* User flushes only (the cleaner flushes the core by itself). The core
+	 * leg is skipped, completing without a submit, when no counted core
+	 * write/discard completed since the last successful core flush. */
+	if (ocf_core_flush_skip_check(req->core, &req->flush_skip_gen)) {
+		req->flush_skip_track = false;
+		req->core_forward_end(req, 0);
+		return;
+	}
+
+	req->flush_skip_track = true;
 	ocf_req_forward_core_flush(req);
 }
 

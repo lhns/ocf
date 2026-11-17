@@ -23,6 +23,7 @@ from ctypes import (
 )
 from enum import IntEnum, auto
 from datetime import timedelta
+import os
 import re
 
 from ..ocf import OcfLib
@@ -310,6 +311,27 @@ class Cache:
 
         self.started = True
         self.owner.caches.append(self)
+
+        # Run a whole suite with core flush skipping on (never a default)
+        if os.environ.get("PYOCF_FLUSH_SKIP") == "1":
+            self.set_flush_skip(True)
+
+    def set_flush_skip(self, enabled: bool):
+        if not hasattr(self.owner.lib, "ocf_cache_set_flush_skip"):
+            # library without the feature (e.g. unpatched baseline): nothing to switch
+            assert not enabled, "OCF library has no flush skipping"
+            return
+        self.owner.lib.ocf_cache_set_flush_skip(self.cache_handle, enabled)
+
+    def get_flush_skip(self):
+        """Returns (enabled, flushes_forwarded, flushes_skipped)"""
+        enabled = c_bool()
+        forwarded = c_uint64()
+        skipped = c_uint64()
+        self.owner.lib.ocf_cache_get_flush_skip(
+            self.cache_handle, byref(enabled), byref(forwarded), byref(skipped)
+        )
+        return bool(enabled.value), forwarded.value, skipped.value
 
     def add_io_queue(self, *args, **kwargs):
         q = Queue(self, args, **kwargs)
@@ -1191,6 +1213,11 @@ lib.ocf_stats_collect_part_cache.argtypes = [
     c_void_p,
 ]
 lib.ocf_stats_collect_part_cache.restype = c_int
+if hasattr(lib, "ocf_cache_set_flush_skip"):
+    lib.ocf_cache_set_flush_skip.argtypes = [c_void_p, c_bool]
+    lib.ocf_cache_set_flush_skip.restype = None
+    lib.ocf_cache_get_flush_skip.argtypes = [c_void_p, c_void_p, c_void_p, c_void_p]
+    lib.ocf_cache_get_flush_skip.restype = None
 lib.ocf_cache_get_info.argtypes = [c_void_p, c_void_p]
 lib.ocf_cache_get_info.restype = c_int
 lib.ocf_mngt_cache_cleaning_set_param.argtypes = [

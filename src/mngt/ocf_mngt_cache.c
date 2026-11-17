@@ -483,6 +483,8 @@ static void _ocf_mngt_load_add_cores(ocf_pipeline_t pipeline,
 		if (ret < 0)
 			goto err;
 
+		ocf_core_flush_skip_init(core);
+
 		if (!core->opened) {
 			env_bit_set(ocf_cache_state_incomplete,
 					&cache->cache_state);

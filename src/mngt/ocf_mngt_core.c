@@ -332,6 +332,7 @@ static void ocf_mngt_cache_try_add_core_insert(ocf_pipeline_t pipeline,
 		goto error_after_open;
 	}
 
+	ocf_core_flush_skip_init(core);
 	core->opened = true;
 
 	if (!(--cache->ocf_core_inactive_count))
@@ -497,6 +498,7 @@ static void ocf_mngt_cache_add_core_insert(ocf_pipeline_t pipeline,
 	context->cache->conf_meta->core_count++;
 
 	core->conf_meta->valid = true;
+	ocf_core_flush_skip_init(core);
 	core->added = true;
 	core->opened = true;
 

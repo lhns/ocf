@@ -297,6 +297,20 @@ struct ocf_request {
 	uint8_t is_mngt : 1;
 	/* !< It's a management path request */
 
+	/* The next two are deliberately not bit fields: they are written while
+	 * other completions of the same request may update the bit fields above,
+	 * and a lost update would silently disable the tracking. */
+
+	bool core_write_counted;
+	/* !< Current core forward is a counted write/discard, see
+	 * ocf_req_forward_core_io() */
+
+	bool flush_skip_track;
+	/* !< Current core flush forward advances core flush-skip state */
+
+	uint64_t flush_skip_gen;
+	/* !< Core write generation covered by the current core flush */
+
 	ocf_req_cache_mode_t cache_mode;
 
 	ocf_queue_t io_queue;

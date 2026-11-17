@@ -12,6 +12,7 @@
 #include "engine/engine_common.h"
 #include "utils/utils_cache_line.h"
 #include "ocf_env_refcnt.h"
+#include "ocf_core_priv.h"
 
 #define OCF_UTILS_RQ_DEBUG 0
 
@@ -97,6 +98,9 @@ static inline void ocf_req_init(struct ocf_request *req, ocf_cache_t cache,
 	req->addr = addr;
 	req->bytes = bytes;
 	req->rw = rw;
+
+	req->core_write_counted = false;
+	req->flush_skip_track = false;
 }
 
 struct ocf_request *ocf_req_new_mngt(ocf_cache_t cache, ocf_queue_t queue)
@@ -562,11 +566,28 @@ void ocf_req_forward_core_init(struct ocf_request *req,
 	req->core_forward_end = callback;
 }
 
+/*
+ * Core flush skipping, counting contract.
+ *
+ * Every write or discard that OCF sends to a core volume on behalf of a user
+ * request goes through ocf_req_forward_core_io() or
+ * ocf_req_forward_core_discard(), and is counted (core->flush_skip_done) when
+ * it completes, in ocf_forward_end(), before the upper request completes (see
+ * ocf_core_flush_skip_check()). Errors are counted as well.
+ *
+ * Cleaner requests are exempt: the cleaner writes data that is also held dirty
+ * on the cache device and flushes the core itself before marking it clean.
+ *
+ * Any new caller of these functions is counted by default, i.e. it errs toward
+ * flushing. Core writes that bypass them would break flush skipping.
+ */
 void ocf_req_forward_core_io(struct ocf_request *req, int dir, uint64_t addr,
 		uint64_t bytes, uint64_t offset)
 {
 	ocf_volume_t volume = ocf_core_get_volume(req->core);
 	ocf_forward_token_t token = ocf_req_to_core_forward_token(req);
+
+	req->core_write_counted = (dir == OCF_WRITE) && !req->cleaner;
 
 	ocf_req_forward_core_get(req);
 	ocf_volume_forward_io(volume, token, dir, addr, bytes, offset);
@@ -577,6 +598,8 @@ void ocf_req_forward_core_flush(struct ocf_request *req)
 	ocf_volume_t volume = ocf_core_get_volume(req->core);
 	ocf_forward_token_t token = ocf_req_to_core_forward_token(req);
 
+	req->core_write_counted = false;
+
 	ocf_req_forward_core_get(req);
 	ocf_volume_forward_flush(volume, token);
 }
@@ -586,6 +609,9 @@ void ocf_req_forward_core_discard(struct ocf_request *req, uint64_t addr,
 {
 	ocf_volume_t volume = ocf_core_get_volume(req->core);
 	ocf_forward_token_t token = ocf_req_to_core_forward_token(req);
+
+	/* Counting contract: see ocf_req_forward_core_io() */
+	req->core_write_counted = !req->cleaner;
 
 	ocf_req_forward_core_get(req);
 	ocf_volume_forward_discard(volume, token, addr, bytes);
@@ -684,6 +710,18 @@ void ocf_forward_end(ocf_forward_token_t token, int error)
 		ocf_req_forward_cache_put(req);
 	} else {
 		req->core_error = req->core_error ?: error;
+
+		/* Before the upper request can complete, so that a flush
+		 * issued after that completion sees the write */
+		if (req->core_write_counted)
+			ocf_core_flush_skip_write_done(req->core);
+		else if (req->flush_skip_track) {
+			req->flush_skip_track = false;
+			if (!error)
+				ocf_core_flush_skip_flushed(req->core,
+						req->flush_skip_gen);
+		}
+
 		ocf_req_forward_core_put(req);
 	}
 }

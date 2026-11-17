@@ -83,6 +83,68 @@ ocf_core_state_t ocf_core_get_state(ocf_core_t core)
 			ocf_core_state_active : ocf_core_state_inactive;
 }
 
+/*
+ * Core flush skipping.
+ *
+ * A user flush reaches the core only if a core write/discard completed since
+ * the last successful core flush; otherwise the cache device (e.g. PLP NVMe)
+ * already holds all acknowledged data and the core leg is redundant.
+ * "done" counts completions of counted core writes/discards (see
+ * ocf_req_forward_core_io()), "flushed" is the value of "done" that a
+ * successfully completed core flush is known to cover. A flush snapshots
+ * "done" BEFORE submitting, so writes completing later keep done > flushed.
+ * Everything here is RAM only and must stay out of any on-disk structure.
+ */
+void ocf_core_flush_skip_init(ocf_core_t core)
+{
+	/* Start "dirty": the first flush after load/add/insert is forwarded,
+	 * the drive may hold unflushed direct writes we know nothing about. */
+	env_atomic64_set(&core->flush_skip_done, 1);
+	env_atomic64_set(&core->flush_skip_flushed, 0);
+}
+
+void ocf_core_flush_skip_write_done(ocf_core_t core)
+{
+	env_atomic64_inc(&core->flush_skip_done);
+}
+
+/*
+ * Returns true when the core leg of a flush may be skipped. Otherwise the flush
+ * must be forwarded and, if it succeeds, ocf_core_flush_skip_flushed(core, *gen)
+ * must be called. Tracking runs regardless of the switch, which only gates
+ * skipping.
+ */
+bool ocf_core_flush_skip_check(ocf_core_t core, uint64_t *gen)
+{
+	ocf_cache_t cache = ocf_core_get_cache(core);
+	uint64_t done = env_atomic64_read(&core->flush_skip_done);
+	uint64_t flushed = env_atomic64_read(&core->flush_skip_flushed);
+
+	*gen = done;
+
+	if (env_atomic_read(&cache->flush_skip_enabled) && done == flushed) {
+		env_atomic64_inc(&cache->flushes_skipped);
+		return true;
+	}
+
+	env_atomic64_inc(&cache->flushes_forwarded);
+	return false;
+}
+
+/* A core flush that snapshotted "gen" completed successfully */
+void ocf_core_flush_skip_flushed(ocf_core_t core, uint64_t gen)
+{
+	uint64_t cur = env_atomic64_read(&core->flush_skip_flushed);
+	uint64_t prev;
+
+	while (cur < gen) {
+		prev = env_atomic64_cmpxchg(&core->flush_skip_flushed, cur, gen);
+		if (prev == cur)
+			break;
+		cur = prev;
+	}
+}
+
 bool ocf_core_is_valid(ocf_cache_t cache, ocf_core_id_t id)
 {
 	OCF_CHECK_NULL(cache);

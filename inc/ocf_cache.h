@@ -298,4 +298,28 @@ void ocf_cache_set_priv(ocf_cache_t cache, void *priv);
  */
 void *ocf_cache_get_priv(ocf_cache_t cache);
 
+/**
+ * @brief Enable or disable skipping of core flushes (runtime only)
+ *
+ * When enabled, a flush is not forwarded to a core if no write or discard
+ * reached that core since its last successful flush. Never persisted: off
+ * after every cache start or load.
+ *
+ * @param[in] cache Cache object
+ * @param[in] enabled New state
+ */
+void ocf_cache_set_flush_skip(ocf_cache_t cache, bool enabled);
+
+/**
+ * @brief Get core flush skipping state and counters (runtime only)
+ *
+ * @param[in] cache Cache object
+ * @param[out] enabled Switch state (optional)
+ * @param[out] forwarded Flushes forwarded to a core since cache start
+ *	(optional)
+ * @param[out] skipped Flushes not forwarded to a core (optional)
+ */
+void ocf_cache_get_flush_skip(ocf_cache_t cache, bool *enabled,
+		uint64_t *forwarded, uint64_t *skipped);
+
 #endif /* __OCF_CACHE_H__ */

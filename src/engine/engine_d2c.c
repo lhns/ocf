@@ -58,7 +58,11 @@ int ocf_d2c_flush_fast(struct ocf_request *req)
 {
 	OCF_DEBUG_TRACE(req->cache);
 
-	/* Get OCF request - increase reference counter */
+	/* Increase reference counter - once for submission and second time to
+	 * avoid freeing the request before updating stats (a skipped core
+	 * flush completes the request synchronously)
+	 */
+	ocf_req_get(req);
 	ocf_req_get(req);
 
 	ocf_engine_forward_core_flush_req(req, _ocf_d2c_completion);
@@ -70,6 +74,8 @@ int ocf_d2c_flush_fast(struct ocf_request *req)
 
 	ocf_core_stats_request_pt_update(req->core, req->part_id, req->rw,
 			req->info.hit_no, req->core_line_count);
+
+	ocf_req_put(req);
 
 	return 0;
 }

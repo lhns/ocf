@@ -94,6 +94,13 @@ struct ocf_core {
 
 	env_atomic flushed;
 
+	/* Core flush skipping (RAM only, never stored in metadata):
+	 * done    - core writes/discards completed (cleaner excluded)
+	 * flushed - value of done covered by the last successful core flush
+	 */
+	env_atomic64 flush_skip_done;
+	env_atomic64 flush_skip_flushed;
+
 	/* This bit means that core volume is initialized */
 	uint32_t has_volume : 1;
 	/* This bit means that core volume is open */
@@ -107,6 +114,12 @@ struct ocf_core {
 };
 
 bool ocf_core_is_valid(ocf_cache_t cache, ocf_core_id_t id);
+
+/* Core flush skipping, see ocf_core.c */
+void ocf_core_flush_skip_init(ocf_core_t core);
+void ocf_core_flush_skip_write_done(ocf_core_t core);
+bool ocf_core_flush_skip_check(ocf_core_t core, uint64_t *gen);
+void ocf_core_flush_skip_flushed(ocf_core_t core, uint64_t gen);
 
 ocf_core_id_t ocf_core_get_id(ocf_core_t core);
 

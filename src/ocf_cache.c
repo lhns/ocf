@@ -315,6 +315,25 @@ void *ocf_cache_get_priv(ocf_cache_t cache)
 	return cache->priv;
 }
 
+void ocf_cache_set_flush_skip(ocf_cache_t cache, bool enabled)
+{
+	OCF_CHECK_NULL(cache);
+	env_atomic_set(&cache->flush_skip_enabled, enabled);
+}
+
+void ocf_cache_get_flush_skip(ocf_cache_t cache, bool *enabled,
+		uint64_t *forwarded, uint64_t *skipped)
+{
+	OCF_CHECK_NULL(cache);
+
+	if (enabled)
+		*enabled = env_atomic_read(&cache->flush_skip_enabled);
+	if (forwarded)
+		*forwarded = env_atomic64_read(&cache->flushes_forwarded);
+	if (skipped)
+		*skipped = env_atomic64_read(&cache->flushes_skipped);
+}
+
 struct ocf_cache_volume {
 	ocf_cache_t cache;
 };
