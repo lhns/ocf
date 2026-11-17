@@ -87,7 +87,10 @@ static void _ocf_write_wb_complete(struct ocf_request *req, int error)
 
 		req->complete(req, error);
 
-		ocf_engine_invalidate(req);
+		/* Dirty sectors from earlier writes hold data newer than the
+		 * core's, they must not be dropped. Sectors this request newly
+		 * mapped are not dirty yet and are purged. */
+		ocf_engine_invalidate_keep_dirty(req);
 	} else {
 		ocf_queue_push_req_cb(req, ocf_write_wb_do_flush_metadata,
 				OCF_QUEUE_ALLOW_SYNC | OCF_QUEUE_PRIO_HIGH);

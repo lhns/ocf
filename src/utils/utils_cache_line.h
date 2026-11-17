@@ -243,6 +243,68 @@ static inline void ocf_purge_map_info(struct ocf_request *req)
 	}
 }
 
+/**
+ * @brief Purge the request range of mapped cache lines, except for sectors
+ * that are dirty. Dirty sectors hold data not yet flushed to the core, so
+ * error handling must not drop them.
+ *
+ * @param req - OCF request to purge
+ */
+static inline void ocf_purge_map_info_keep_dirty(struct ocf_request *req)
+{
+	struct ocf_cache *cache = req->cache;
+	struct ocf_map_info *map = req->map;
+	uint32_t count = req->core_line_count;
+	uint32_t map_idx;
+	uint8_t start_bit, end_bit, bit, run_start = 0;
+	bool in_run;
+
+	for (map_idx = 0; map_idx < count; map_idx++) {
+		if (map[map_idx].status == LOOKUP_MISS)
+			continue;
+
+		start_bit = 0;
+		end_bit = ocf_line_end_block(cache);
+
+		if (map_idx == 0) {
+			start_bit = BYTES_TO_BLOCKS_ROUND_DOWN(req->addr)
+					% ocf_line_blocks(cache);
+		}
+
+		if (map_idx == (count - 1)) {
+			end_bit = BYTES_TO_BLOCKS_ROUND_DOWN(req->addr +
+					req->bytes - 1) %
+					ocf_line_blocks(cache);
+		}
+
+		ocf_metadata_start_collision_shared_access(cache,
+				map[map_idx].coll_idx);
+
+		/* Purge every run of non-dirty sectors in the range */
+		in_run = false;
+		for (bit = start_bit; bit <= end_bit; bit++) {
+			bool dirty = metadata_test_dirty_one(cache,
+					map[map_idx].coll_idx, bit);
+
+			if (!dirty && !in_run) {
+				run_start = bit;
+				in_run = true;
+			} else if (dirty && in_run) {
+				_ocf_purge_cache_line_sec(cache, run_start,
+						bit - 1, req, map_idx);
+				in_run = false;
+			}
+		}
+		if (in_run) {
+			_ocf_purge_cache_line_sec(cache, run_start, end_bit,
+					req, map_idx);
+		}
+
+		ocf_metadata_end_collision_shared_access(cache,
+				map[map_idx].coll_idx);
+	}
+}
+
 static inline
 uint8_t ocf_map_line_start_block(struct ocf_request *req, uint32_t line)
 {

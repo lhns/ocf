@@ -23,10 +23,9 @@
 static void _ocf_write_wt_update_bits(struct ocf_request *req)
 {
 	bool miss = ocf_engine_is_miss(req);
-	bool dirty_any = req->info.dirty_any;
 	bool repart = ocf_engine_needs_repart(req);
 
-	if (!miss && !dirty_any && !repart)
+	if (!miss && !repart)
 		return;
 
 	ocf_hb_req_prot_lock_wr(req);
@@ -34,13 +33,6 @@ static void _ocf_write_wt_update_bits(struct ocf_request *req)
 	if (miss) {
 		/* Update valid status bits */
 		ocf_set_valid_map_info(req);
-	}
-
-	if (dirty_any) {
-		/* Writes goes to both cache and core, need to update
-		 * status bits from dirty to clean
-		 */
-		ocf_set_clean_map_info(req);
 	}
 
 	if (repart) {
@@ -54,37 +46,6 @@ static void _ocf_write_wt_update_bits(struct ocf_request *req)
 	ocf_hb_req_prot_unlock_wr(req);
 }
 
-static void _ocf_write_wt_do_flush_metadata_compl(struct ocf_request *req,
-		int error)
-{
-	if (error)
-		ocf_engine_error(req, true, "Failed to write data to cache");
-
-	ocf_req_unlock_wr(ocf_cache_line_concurrency(req->cache), req);
-
-	req->complete(req, error);
-
-	ocf_req_put(req);
-}
-
-static int ocf_write_wt_do_flush_metadata(struct ocf_request *req)
-{
-	struct ocf_cache *cache = req->cache;
-
-	_ocf_write_wt_update_bits(req);
-
-	if (req->info.flush_metadata) {
-		/* Metadata flush IO */
-
-		ocf_metadata_flush_do_asynch(cache, req,
-				_ocf_write_wt_do_flush_metadata_compl);
-	} else {
-		_ocf_write_wt_do_flush_metadata_compl(req, 0);
-	}
-
-	return 0;
-}
-
 static void _ocf_write_wt_req_complete(struct ocf_request *req)
 {
 	if (env_atomic_dec_return(&req->req_remaining))
@@ -93,20 +54,23 @@ static void _ocf_write_wt_req_complete(struct ocf_request *req)
 	OCF_DEBUG_RQ(req, "Completion");
 
 	if (req->info.cache_error || req->info.core_error) {
+		if (req->info.cache_error && req->info.dirty_any &&
+				!req->error) {
+			/* Dirty sectors of the request are kept (see below),
+			 * but their cache copy may be torn now, so the write
+			 * must not be acknowledged. */
+			req->error = -OCF_ERR_IO;
+		}
 		req->complete(req, req->error);
-		ocf_engine_invalidate(req);
+		/* Dirty sectors hold the only durable copy of the data
+		 * written earlier, so they must not be purged. */
+		ocf_engine_invalidate_keep_dirty(req);
 		return;
 	}
 
-	if (req->info.dirty_any) {
-		/* Some of the request's cachelines changed its state to clean */
-		ocf_queue_push_req_cb(req, ocf_write_wt_do_flush_metadata,
-				OCF_QUEUE_ALLOW_SYNC | OCF_QUEUE_PRIO_HIGH);
-	} else {
-		ocf_req_unlock_wr(ocf_cache_line_concurrency(req->cache), req);
-		req->complete(req, 0);
-		ocf_req_put(req);
-	}
+	ocf_req_unlock_wr(ocf_cache_line_concurrency(req->cache), req);
+	req->complete(req, 0);
+	ocf_req_put(req);
 }
 
 static void _ocf_write_wt_cache_complete(struct ocf_request *req, int error)
@@ -156,12 +120,13 @@ static int _ocf_write_wt_do(struct ocf_request *req)
 	/* Get OCF request - increase reference counter */
 	ocf_req_get(req);
 
-	if (!req->info.dirty_any) {
-		/* Set metadata bits before the request submission only if the dirty
-		   status for any of the request's cachelines won't change */
-		_ocf_write_wt_update_bits(req);
-		ENV_BUG_ON(req->info.flush_metadata);
-	}
+	/* Sectors that are dirty stay dirty: both the cache and the core get
+	 * the new data, but the core copy is not durable until flushed, and
+	 * dirty status is what protects the data after a crash. The cleaner
+	 * will rewrite the same data to the core and flush it before cleaning.
+	 */
+	_ocf_write_wt_update_bits(req);
+	ENV_BUG_ON(req->info.flush_metadata);
 
 	/* Submit IO */
 	_ocf_write_wt_submit(req);

@@ -8,4 +8,7 @@
 
 void ocf_engine_invalidate(struct ocf_request *req);
 
+/* Like ocf_engine_invalidate(), but dirty sectors stay in the cache */
+void ocf_engine_invalidate_keep_dirty(struct ocf_request *req);
+
 #endif /* ENGINE_INV_H_ */

@@ -282,8 +282,12 @@ def test_strict_engine_errors_partial(pyocf_ctx, cache_mode: CacheMode, cls: Cac
 
     cache.settle()
 
-    # All cache lines should be invalidated. If the occupancy counter
-    # leaked during partial-error I/O, it won't reach zero.
-    assert cache.get_stats()["usage"]["occupancy"]["value"] == 0
+    # All cache lines should be invalidated, except those holding dirty data
+    # from earlier successful writes (write-back): a failed write never drops
+    # them. If the occupancy counter leaked during partial-error I/O, it won't
+    # match the lines that are still there.
+    usage = cache.get_stats()["usage"]
+    expected = usage["dirty"]["value"] if cache_mode != CacheMode.WT else 0
+    assert usage["occupancy"]["value"] == expected
 
     error_device.disarm()

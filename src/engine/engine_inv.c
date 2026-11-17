@@ -32,12 +32,15 @@ static void _ocf_invalidate_req(struct ocf_request *req, int error)
 	ocf_req_put(req);
 }
 
-static int _ocf_invalidate_do(struct ocf_request *req)
+static int _ocf_invalidate_do_common(struct ocf_request *req, bool keep_dirty)
 {
 	struct ocf_cache *cache = req->cache;
 
 	ocf_hb_req_prot_lock_wr(req);
-	ocf_purge_map_info(req);
+	if (keep_dirty)
+		ocf_purge_map_info_keep_dirty(req);
+	else
+		ocf_purge_map_info(req);
 	ocf_hb_req_prot_unlock_wr(req);
 
 	if (ocf_volume_is_atomic(&cache->device->volume) &&
@@ -51,8 +54,24 @@ static int _ocf_invalidate_do(struct ocf_request *req)
 	return 0;
 }
 
+static int _ocf_invalidate_do(struct ocf_request *req)
+{
+	return _ocf_invalidate_do_common(req, false);
+}
+
+static int _ocf_invalidate_keep_dirty_do(struct ocf_request *req)
+{
+	return _ocf_invalidate_do_common(req, true);
+}
+
 void ocf_engine_invalidate(struct ocf_request *req)
 {
 	ocf_queue_push_req_cb(req, _ocf_invalidate_do,
+			OCF_QUEUE_ALLOW_SYNC | OCF_QUEUE_PRIO_HIGH);
+}
+
+void ocf_engine_invalidate_keep_dirty(struct ocf_request *req)
+{
+	ocf_queue_push_req_cb(req, _ocf_invalidate_keep_dirty_do,
 			OCF_QUEUE_ALLOW_SYNC | OCF_QUEUE_PRIO_HIGH);
 }
