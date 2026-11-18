@@ -715,13 +715,18 @@ void ocf_forward_end(ocf_forward_token_t token, int error)
 		 * issued after that completion sees the write */
 		if (req->core_write_counted) {
 			ocf_core_flush_skip_write_done(req->core);
-		} else if (req->flush_skip_track) {
-			req->flush_skip_track = false;
-			if (!error)
-				ocf_core_flush_skip_flushed(req->core,
-						req->flush_skip_gen);
 		}
 
-		ocf_req_forward_core_put(req);
+		/* A forward can end several times (e.g. composite volume), so
+		 * the flush counts only on the last end, if none failed */
+		if (env_atomic_dec_return(&req->core_remaining) == 0) {
+			if (req->flush_skip_track) {
+				req->flush_skip_track = false;
+				if (!req->core_error)
+					ocf_core_flush_skip_flushed(req->core,
+							req->flush_skip_gen);
+			}
+			req->core_forward_end(req, req->core_error);
+		}
 	}
 }
