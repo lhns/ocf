@@ -27,9 +27,8 @@ from pyocf.ocf import OcfLib
 from pyocf.types.cache import CacheMode
 from pyocf.types.io import IoDir
 from pyocf.types.shared import SeqCutOffPolicy, OcfError
-from pyocf.utils import Size
 
-from .harness import Harness, BLK, ZERO
+from .harness import Harness, BLK
 
 lib = OcfLib.getInstance()
 
@@ -113,7 +112,7 @@ def test_write_completing_after_flush_issued(pyocf_ctx):
     h.drive.hold_write = lambda *a: True
     w = h.write(7, wait=False)
     h.until(lambda: h.drive.held)
-    f1 = h.flush()  # write not completed: nothing to flush yet, skipped
+    h.flush()  # write not completed: nothing to flush yet, skipped
     assert h.counters() == (1, 1)
     assert not w.done
     h.release_writes()
@@ -135,7 +134,7 @@ def test_write_completing_while_core_flush_in_flight(pyocf_ctx):
     h.drive.hold_flush = False
     h.release_flushes()
     f1.wait()
-    f2 = h.flush()
+    h.flush()
     assert h.counters()[0] == 2, "second flush must be forwarded"
     h.verify_images()
 
@@ -401,7 +400,7 @@ def test_cleaner_exempt(pyocf_ctx):
     assert h.drive.flush_completed >= 1
     for i in range(20):
         assert h.drive.durable[i * BLK:(i + 1) * BLK] != bytes(BLK)
-    f = h.flush()
+    h.flush()
     assert h.counters() == (1, 1)
     h.verify_images()
 

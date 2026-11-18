@@ -108,13 +108,13 @@ struct ocf_cache {
 	env_atomic pending_read_misses_list_count;
 
 	env_atomic flush_in_progress;
+	env_mutex flush_mutex;
 
 	/* Core flush skipping, see ocf_core_flush_skip_check(). RAM only:
 	 * never stored in metadata, off after every start/load. */
 	env_atomic flush_skip_enabled;
 	env_atomic64 flushes_forwarded;
 	env_atomic64 flushes_skipped;
-	env_mutex flush_mutex;
 
 	env_atomic attach_pt;
 

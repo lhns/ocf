@@ -713,9 +713,9 @@ void ocf_forward_end(ocf_forward_token_t token, int error)
 
 		/* Before the upper request can complete, so that a flush
 		 * issued after that completion sees the write */
-		if (req->core_write_counted)
+		if (req->core_write_counted) {
 			ocf_core_flush_skip_write_done(req->core);
-		else if (req->flush_skip_track) {
+		} else if (req->flush_skip_track) {
 			req->flush_skip_track = false;
 			if (!error)
 				ocf_core_flush_skip_flushed(req->core,
