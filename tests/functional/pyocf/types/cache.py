@@ -290,7 +290,7 @@ class Cache:
             ),
             _locked=locked,
             _pt_unaligned_io=self.pt_unaligned_io,
-            _use_submit_fast=self.use_submit_fast,
+            _use_submit_io_fast=self.use_submit_fast,
         )
 
         status = self.owner.lib.ocf_mngt_cache_start(
