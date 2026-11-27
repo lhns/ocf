@@ -1063,6 +1063,7 @@ static int _ocf_mngt_init_prepare_cache(struct ocf_cache_mngt_init_params *param
 #endif
 
 	cache->use_submit_io_fast = cfg->use_submit_io_fast;
+	cache->pt_inline = cfg->pt_inline;
 
 	cache->metadata.is_volatile = cfg->metadata_volatile;
 

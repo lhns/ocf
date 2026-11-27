@@ -289,6 +289,12 @@ struct ocf_mngt_cache_config {
 	bool use_submit_io_fast;
 
 	/**
+	 * @brief If set, run pass-through requests in the submitter's context
+	 *        instead of pushing them to the I/O queue.
+	 */
+	bool pt_inline;
+
+	/**
 	 * @brief Backfill configuration
 	 */
 	struct {
@@ -317,6 +323,7 @@ static inline void ocf_mngt_cache_config_set_default(
 	cfg->locked = false;
 	cfg->pt_unaligned_io = false;
 	cfg->use_submit_io_fast = false;
+	cfg->pt_inline = false;
 }
 
 /**

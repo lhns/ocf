@@ -212,6 +212,21 @@ int ocf_engine_hndl_req(struct ocf_request *req)
 
 	ocf_req_get(req);
 
+	/*
+	 * Pass-through maps no cache lines, so like the fast path it can run
+	 * in the submitter's context: its core I/O then joins the submitter's
+	 * plug instead of being issued by the queue thread one by one.
+	 */
+	if (req->cache_mode == ocf_req_cache_mode_pt && cache->pt_inline) {
+		env_atomic_set(&cache->last_access_ms,
+			       env_ticks_to_msecs(env_get_tick_count()));
+		if (req->io.handle)
+			req->io.handle(req, req);
+		else
+			ocf_io_handle(req, req);
+		return 0;
+	}
+
 	/* Till OCF engine is not synchronous fully need to push OCF request
 	 * to into OCF workers
 	 */

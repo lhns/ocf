@@ -144,6 +144,8 @@ struct ocf_cache {
 
 	bool use_submit_io_fast;
 
+	bool pt_inline;
+
 	struct {
 		struct ocf_async_lock lock;
 	} __attribute__((aligned(64)));
