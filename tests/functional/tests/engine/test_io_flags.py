@@ -72,7 +72,7 @@ def test_io_flags(pyocf_ctx):
 
     pyocf_ctx.register_volume_type(FlagsValVolume)
 
-    cache_device = FlagsValVolume(Size.from_MiB(50), 0)
+    cache_device = FlagsValVolume(Size.from_MiB(50), flags)
     core_device = FlagsValVolume(Size.from_MiB(50), flags)
 
     cache = Cache.start_on_device(cache_device, cache_mode=CacheMode.WB)
