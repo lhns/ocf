@@ -155,12 +155,6 @@ static int _ocf_write_wi_core_write(struct ocf_request *req)
 	return 0;
 }
 
-static void _ocf_write_wi_on_resume(struct ocf_request *req)
-{
-	OCF_DEBUG_RQ(req, "On resume");
-	ocf_queue_push_req(req, OCF_QUEUE_ALLOW_SYNC | OCF_QUEUE_PRIO_HIGH);
-}
-
 int ocf_write_wi(struct ocf_request *req)
 {
 	int lock = OCF_LOCK_NOT_ACQUIRED;
@@ -186,7 +180,7 @@ int ocf_write_wi(struct ocf_request *req)
 		/* Some cache line are mapped, lock request for WRITE access */
 		lock = ocf_req_async_lock_wr(
 				ocf_cache_line_concurrency(req->cache),
-				req, _ocf_write_wi_on_resume);
+				req, ocf_engine_on_resume);
 	} else {
 		lock = OCF_LOCK_ACQUIRED;
 	}
