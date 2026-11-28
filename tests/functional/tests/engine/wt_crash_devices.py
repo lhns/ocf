@@ -40,7 +40,10 @@ class VolatileVolume(Volume):
     A flush covers writes completed before it ARRIVED at the drive; writes
     completing while it is in flight stay pending. Held writes are not
     completed and therefore not visible to reads or flushes.
+    A write carrying the fua_flag bit (0: none) is durable when it completes.
     """
+
+    fua_flag = 0
 
     def __init__(self, size_bytes, uuid=None):
         super().__init__(uuid)
@@ -118,12 +121,13 @@ class VolatileVolume(Volume):
             Io.forward_end(token, 0)
             return
 
-        self._write_or_hold(token, ("w", addr, string_at(data, nbytes)))
+        fua = bool(self.fua_flag & lib.ocf_forward_get_flags(token))
+        self._write_or_hold(token, ("w", addr, string_at(data, nbytes)), fua)
 
     def do_forward_discard(self, token, addr, nbytes):
         self._write_or_hold(token, ("z", addr, nbytes))
 
-    def _write_or_hold(self, token, op):
+    def _write_or_hold(self, token, op, fua=False):
         kind, addr, arg = op
         nbytes = len(arg) if kind == "w" else arg
         if self.fail_write and self.fail_write(kind, addr, nbytes):
@@ -131,13 +135,15 @@ class VolatileVolume(Volume):
             return
         with self.lock:
             if self.hold_write and self.hold_write(kind, addr, nbytes):
-                self.held.append((token, op))
+                self.held.append((token, op, fua))
                 return
-        self._complete_write(token, op)
+        self._complete_write(token, op, fua)
 
-    def _complete_write(self, token, op):
+    def _complete_write(self, token, op, fua=False):
         with self.lock:
             self.pending.append((self.next_id, op))
+            if fua:  # also stays pending, so a later flush keeps the write order
+                self.apply(self.durable, op)
             self.trace.append("drive: write id %d %s addr %d completed"
                               % (self.next_id, op[0], op[1]))
             self.next_id += 1
@@ -150,10 +156,10 @@ class VolatileVolume(Volume):
             with self.lock:
                 if not self.held or count == 0:
                     return
-                token, op = self.held.pop(0)
+                token, op, fua = self.held.pop(0)
                 if count is not None:
                     count -= 1
-            self._complete_write(token, op)
+            self._complete_write(token, op, fua)
 
     def do_forward_flush(self, token):
         with self.lock:
@@ -191,12 +197,25 @@ class VolatileVolume(Volume):
                     count -= 1
             self._complete_flush(token, batch, fail)
 
+    def make_durable(self):
+        """As if a flush completed now"""
+        with self.lock:
+            for _, op in self.pending:
+                self.apply(self.durable, op)
+            self.pending = []
+
     def release_all(self):
         self.hold_write = None
         self.hold_flush = False
         self.release_writes()
         self.release_flushes()
 
+
+class VolatileCache(VolatileVolume):
+    """Cache device with a volatile write cache; snapshot() is its image after a power cut"""
+
+    def snapshot(self):
+        return self.crash_image()
 
 
 class GuardedRam(RamVolume):

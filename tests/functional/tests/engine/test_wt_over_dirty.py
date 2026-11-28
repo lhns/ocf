@@ -37,17 +37,22 @@ ZERO = bytes(BLK)
 
 class Rig:
     n = 0
+    cache_dev_type = GuardedRam  # test_cache_fua.py: VolatileCache
+    fua_flag = 0  # I/O flag bit the volatile devices treat as FUA
 
     def __init__(self, ctx, mode=CacheMode.WB, ncores=1, cls1=None,
                  line_size=CacheLineSize.DEFAULT):
         Rig.n += 1
         self.ctx = ctx
-        for t in (VolatileVolume, GuardedRam):
+        for t in (VolatileVolume, self.cache_dev_type):
             if t not in ctx.ocf_volume_type:
                 ctx.register_volume_type(t)
-        self.cache_ram = GuardedRam(CACHE_SIZE)
+        self.cache_ram = self.cache_dev_type(CACHE_SIZE)
+        self.cache_ram.fua_flag = self.fua_flag
         self.uuids = ["wtod-%d-%d" % (Rig.n, i) for i in range(ncores)]
         self.drives = [VolatileVolume(CORE_BLOCKS * BLK, uuid=u) for u in self.uuids]
+        for d in self.drives:
+            d.fua_flag = self.fua_flag
         self.cache = Cache.start_on_device(self.cache_ram, cache_mode=mode,
                                            cache_line_size=line_size)
         self.cache.set_cleaning_policy(CleaningPolicy.NOP)
@@ -69,12 +74,12 @@ class Rig:
         self.cache.configure_partition(part_id=cid, name="class%d" % cid, max_size=100,
                                        priority=1, cache_mode=mode)
 
-    def write(self, blk, nblk=1, core=0, io_class=0):
+    def write(self, blk, nblk=1, core=0, io_class=0, flags=0):
         """Returns the content written: one block, or a list for nblk > 1"""
         self.seq += 1
         vals = [pattern(self.seq, b) for b in range(blk, blk + nblk)]
         data = Data.from_bytes(b"".join(vals))
-        io = self.vols[core].new_io(self.queue, blk * BLK, nblk * BLK, IoDir.WRITE, io_class, 0)
+        io = self.vols[core].new_io(self.queue, blk * BLK, nblk * BLK, IoDir.WRITE, io_class, flags)
         io.set_data(data)
         self.last_err = Sync(io).submit().results["err"]
         return vals[0] if nblk == 1 else vals
@@ -130,6 +135,7 @@ class Rig:
         self.drives = [VolatileVolume(CORE_BLOCKS * BLK, uuid=u) for u in self.uuids]
         for d, b in zip(self.drives, durables):
             d.durable = bytearray(b)
+            d.fua_flag = self.fua_flag
         self.cache = Cache.load_from_device(ram)
         self.queue = self.cache.get_default_queue()
         self.vols = []
