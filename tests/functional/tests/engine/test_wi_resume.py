@@ -59,10 +59,11 @@ def test_wi_after_wb_write_in_lock_queue(pyocf_ctx, dirty_outside):
     dirty: the request info counts a line dirty if any of its blocks is, so WI
     cleans the line even without the fix; control case).
     Queue on L's lock: holder H (WT write, block 5, core write held), then a WB
-    write W of blocks 0-1 (D1), then a WI write of blocks 0-1 (D2). WI looked
+    write W of blocks 0-3 (D1), then a WI write of blocks 0-1 (D2). WI looked
     the line up while it was clean. Once W is acknowledged the user flushes;
     WI's core write is held until then. After the power cut the range must read
-    D1 or D2, never the content from before D1 (D0); block 15 keeps its content.
+    D1 or D2, never the content from before D1 (D0); blocks 2-3 (dirty, outside
+    WI's range) read D1; block 15 keeps its content.
     """
     r = Rig(pyocf_ctx, CacheMode.WB, line_size=CacheLineSize.LINE_64KiB)
     r.set_class(CLS_WB, CacheMode.WB)
@@ -84,7 +85,7 @@ def test_wi_after_wb_write_in_lock_queue(pyocf_ctx, dirty_outside):
     th, _, _ = submit_async(r, 5, 1, CLS_WT, 100)
     wait_until(lambda: r.drives[0].held, "H core write not held")
 
-    tw, d1, rw = submit_async(r, 0, 2, CLS_WB, 101)
+    tw, d1, rw = submit_async(r, 0, 4, CLS_WB, 101)
     time.sleep(0.3)  # W is queued on the line lock
     twi, d2, rwi = submit_async(r, 0, 2, CLS_WI, 102)
     time.sleep(0.3)  # WI looked the line up and is queued behind W
@@ -103,6 +104,9 @@ def test_wi_after_wb_write_in_lock_queue(pyocf_ctx, dirty_outside):
     assert not twi.is_alive() and rwi["err"] == 0
 
     r.crash()
+    # blocks 2-3 are outside WI's range: dirty D1 must survive
+    for i in (2, 3):
+        check_after_crash(r, i, d1[i], None)
     for i in range(2):
         check_after_crash(r, i, d1[i], d2[i], older=d0[i])
     check_after_crash(r, 15, y1, None)
