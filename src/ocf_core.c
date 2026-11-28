@@ -288,7 +288,8 @@ static inline ocf_req_cache_mode_t _ocf_core_req_resolve_fast_mode(
 			break;
 	}
 
-	if (!cache->use_submit_io_fast)
+	/* The fast write path writes back; other modes' writes take their engine */
+	if (!cache->use_submit_io_fast || req->rw == OCF_WRITE)
 		return ocf_req_cache_mode_max;
 
 	return ocf_req_cache_mode_fast;
